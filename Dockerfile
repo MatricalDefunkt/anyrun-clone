@@ -14,11 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Stage for desktop environment
 FROM base AS desktop
-# Install XFCE related packages
+# Install GNOME instead of XFCE
 RUN apt-get update && apt-get install -y --no-install-recommends \
-  xfce4 \
-  xfce4-goodies \
-  xfonts-base \
+  ubuntu-desktop-minimal \
+  gnome-session \
+  gnome-terminal \
+  gnome-shell \
   xauth \
   && rm -rf /var/lib/apt/lists/*
 
