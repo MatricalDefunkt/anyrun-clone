@@ -111,11 +111,16 @@ async function createDockerContainer(
   try {
     // Generate a unique port for noVNC (start from 6080 and offset based on vmId)
     const novncPort = 6080 + vmId;
+    // Also expose the VNC port directly (start from 5901 and offset based on vmId)
+    const vncPort = 5901 + vmId;
 
     // Build docker create command (not run) to create but not start the container
     const dockerCommand = `docker build -t anyrun-vm-image -f /home/matdef/projects/anyrun-clone/Dockerfile /home/matdef/projects/anyrun-clone && \
       docker create --name anyrun-vm-${vmId} \
       -p ${novncPort}:6080 \
+      -p ${vncPort}:5901 \
+      --privileged \
+      --shm-size=1g \
       anyrun-vm-image`;
 
     console.log(`Running Docker command: ${dockerCommand}`);
@@ -123,7 +128,7 @@ async function createDockerContainer(
     const containerId = stdout.trim();
 
     console.log(
-      `Container created with ID: ${containerId} on port ${novncPort} (stopped)`
+      `Container created with ID: ${containerId} on ports ${novncPort}(noVNC) and ${vncPort}(VNC) (stopped)`
     );
     return { port: novncPort, containerId };
   } catch (error) {
@@ -144,6 +149,27 @@ async function startDockerContainer(vmId: number): Promise<void> {
     console.error(`Error starting Docker container for VM ${vmId}:`, error);
     throw new Error(
       `Failed to start Docker container: ${(error as Error).message}`
+    );
+  }
+}
+
+// Stop a Docker container without removing it
+async function stopDockerContainer(vmId: number): Promise<void> {
+  try {
+    const containerName = `anyrun-vm-${vmId}`;
+    // Only stop the container without removing it
+    await execAsync(`docker stop ${containerName}`).catch((error) => {
+      // Ignore errors if container is not running
+      console.log(
+        `Container ${containerName} not running or already stopped: ${error.message}`
+      );
+    });
+
+    console.log(`Container ${containerName} stopped (but not removed)`);
+  } catch (error) {
+    console.error(`Error stopping Docker container for VM ${vmId}:`, error);
+    throw new Error(
+      `Failed to stop Docker container: ${(error as Error).message}`
     );
   }
 }
@@ -368,9 +394,9 @@ app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
           await startDockerContainer(vmId);
           console.log(`Started VM ${vmId}`);
         } else {
-          // Stop VM: remove Docker container
-          await removeDockerContainer(vmId);
-          console.log(`Stopped VM ${vmId}`);
+          // Stop VM: only stop the container without removing it
+          await stopDockerContainer(vmId);
+          console.log(`Stopped VM ${vmId} (container preserved for restart)`);
         }
       } catch (containerError) {
         console.error(
