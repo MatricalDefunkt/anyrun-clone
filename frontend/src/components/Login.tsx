@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { Link } from "react-router-dom";
 
 export default function Login() {
   const [username, setUsername] = useState("");
@@ -17,9 +18,10 @@ export default function Login() {
     try {
       await login(username, password);
       // Login successful, no redirect needed as Auth context will handle this
-    } catch (err: any) {
+    } catch (err: unknown) {
       setError(
-        err.response?.data?.message || "Login failed. Please try again."
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (err as any).response?.data?.message || "Login failed. Please try again."
       );
     } finally {
       setIsLoading(false);
@@ -97,6 +99,15 @@ export default function Login() {
             </button>
           </div>
         </form>
+
+        <div className="mt-6 text-center">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{" "}
+            <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+              Sign up
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );
