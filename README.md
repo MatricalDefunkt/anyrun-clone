@@ -94,13 +94,17 @@ Ensure Docker Desktop (or Docker Engine on Linux) is running. The application wi
 
 ## Screenshots
 
-_(Placeholder for Login Page Screenshot)_
+![Login Page](https://github.com/user-attachments/assets/17d2b678-9b6c-4c47-900d-a30e8ff817b1)
 
-_(Placeholder for Dashboard Screenshot - showing VM list)_
 
-_(Placeholder for VM Creation Modal Screenshot)_
+![Dashboard](https://github.com/user-attachments/assets/706f1ad4-3d7e-4982-a935-5e4a4a620941)
 
-_(Placeholder for Running VM Screenshot - if applicable, e.g., a noVNC connection)_
+
+![Dashboard with VM](https://github.com/user-attachments/assets/3d2a7482-d5c7-432b-8764-fefff611c23c)
+
+
+![VM Screen](https://github.com/user-attachments/assets/5f100b2e-a935-4a95-9ec9-47c633c12d01)
+
 
 ## Technologies Used
 
