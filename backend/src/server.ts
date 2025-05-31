@@ -134,15 +134,21 @@ async function runDockerComposeCommand(
   try {
     const { stdout, stderr } = await execAsync(command);
     if (stderr && !stderr.toLowerCase().includes("warning")) {
-      console.warn(`Docker Compose stderr for vm-${vmId} (${operation}): ${stderr}`);
+      console.warn(
+        `Docker Compose stderr for vm-${vmId} (${operation}): ${stderr}`
+      );
     }
     return { stdout, stderr };
   } catch (error) {
     const execError = error as Error & { stdout?: string; stderr?: string };
-    console.error(`Error executing Docker Compose for vm-${vmId} (${operation}): ${execError.message}`);
+    console.error(
+      `Error executing Docker Compose for vm-${vmId} (${operation}): ${execError.message}`
+    );
     console.error(`Stdout: ${execError.stdout}`);
     console.error(`Stderr: ${execError.stderr}`);
-    throw new Error(`Failed to execute docker-compose ${operation} for VM ${vmId}: ${execError.message}`);
+    throw new Error(
+      `Failed to execute docker compose ${operation} for VM ${vmId}: ${execError.message}`
+    );
   }
 }
 
@@ -182,7 +188,9 @@ async function createDockerContainer(
       `docker-compose.vm-${vmId}.yml`
     );
     await fs.writeFile(composeFilePath, composeFileContent);
-    console.log(`Generated docker-compose file for VM ${vmId} at ${composeFilePath}`);
+    console.log(
+      `Generated docker compose file for VM ${vmId} at ${composeFilePath}`
+    );
 
     await runDockerComposeCommand(vmId, "up --build --no-start");
 
@@ -191,7 +199,10 @@ async function createDockerContainer(
     );
     return { port: novncPort, containerName };
   } catch (error) {
-    console.error(`Error creating Docker Compose service for VM ${vmId}:`, error);
+    console.error(
+      `Error creating Docker Compose service for VM ${vmId}:`,
+      error
+    );
     throw new Error(
       `Failed to create Docker Compose service: ${(error as Error).message}`
     );
@@ -204,7 +215,10 @@ async function startDockerContainer(vmId: number): Promise<void> {
     await runDockerComposeCommand(vmId, "start sandbox_vm");
     console.log(`Container service for VM ${vmId} (sandbox_vm) started`);
   } catch (error) {
-    console.error(`Error starting Docker Compose service for VM ${vmId}:`, error);
+    console.error(
+      `Error starting Docker Compose service for VM ${vmId}:`,
+      error
+    );
     throw new Error(
       `Failed to start Docker Compose service: ${(error as Error).message}`
     );
@@ -215,9 +229,14 @@ async function startDockerContainer(vmId: number): Promise<void> {
 async function stopDockerContainer(vmId: number): Promise<void> {
   try {
     await runDockerComposeCommand(vmId, "stop sandbox_vm");
-    console.log(`Container service for VM ${vmId} (sandbox_vm) stopped (preserved)`);
+    console.log(
+      `Container service for VM ${vmId} (sandbox_vm) stopped (preserved)`
+    );
   } catch (error) {
-    console.error(`Error stopping Docker Compose service for VM ${vmId}:`, error);
+    console.error(
+      `Error stopping Docker Compose service for VM ${vmId}:`,
+      error
+    );
     throw new Error(
       `Failed to stop Docker Compose service: ${(error as Error).message}`
     );
@@ -228,7 +247,9 @@ async function stopDockerContainer(vmId: number): Promise<void> {
 async function removeDockerContainer(vmId: number): Promise<void> {
   try {
     await runDockerComposeCommand(vmId, "down --volumes");
-    console.log(`Container service for VM ${vmId} (sandbox_vm) stopped and removed`);
+    console.log(
+      `Container service for VM ${vmId} (sandbox_vm) stopped and removed`
+    );
 
     const composeFilePath = path.join(
       COMPOSE_FILES_DIR,
@@ -236,12 +257,19 @@ async function removeDockerContainer(vmId: number): Promise<void> {
     );
     try {
       await fs.unlink(composeFilePath);
-      console.log(`Removed docker-compose file: ${composeFilePath}`);
+      console.log(`Removed docker compose file: ${composeFilePath}`);
     } catch (fileError) {
-      console.warn(`Could not remove compose file ${composeFilePath}: ${(fileError as Error).message}`);
+      console.warn(
+        `Could not remove compose file ${composeFilePath}: ${
+          (fileError as Error).message
+        }`
+      );
     }
   } catch (error) {
-    console.error(`Error removing Docker Compose service for VM ${vmId}:`, error);
+    console.error(
+      `Error removing Docker Compose service for VM ${vmId}:`,
+      error
+    );
     throw new Error(
       `Failed to remove Docker Compose service: ${(error as Error).message}`
     );
