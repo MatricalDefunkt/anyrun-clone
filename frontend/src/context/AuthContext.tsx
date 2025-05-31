@@ -46,7 +46,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // Set the auth token on axios
         axios.defaults.headers.common["Authorization"] = `Bearer ${token}`;
         setUser(JSON.parse(storedUser));
-      } catch (error) {
+      } catch (_error) {
         // Invalid stored user
         localStorage.removeItem("user");
         localStorage.removeItem("token");

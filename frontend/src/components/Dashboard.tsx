@@ -143,7 +143,7 @@ export default function Dashboard() {
             <div className="flex">
               <div className="flex-shrink-0 flex items-center">
                 <h1 className="text-xl font-bold text-indigo-600">
-                  AnyRun Clone
+                  Secure Sandbox Environment Manager
                 </h1>
               </div>
             </div>
