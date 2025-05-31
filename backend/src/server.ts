@@ -8,6 +8,8 @@ import jwt from "jsonwebtoken";
 import path from "path";
 import { exec } from "child_process";
 import util from "util";
+import fs from "fs/promises";
+import yaml from "js-yaml";
 
 // Create a promisified version of exec
 const execAsync = util.promisify(exec);
@@ -29,7 +31,13 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key"; // In production, use a secure secret from env
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key";
+
+// Project paths
+const PROJECT_ROOT = path.resolve(__dirname, "../..");
+const DOCKERFILE_PATH = path.join(PROJECT_ROOT, "Dockerfile");
+const COMPOSE_FILES_DIR = path.join(PROJECT_ROOT, "vm-compose-files");
+const BASE_IMAGE_NAME = "ssem-sandbox-image";
 
 // Middleware
 app.use(cors());
@@ -44,6 +52,14 @@ const dbPromise = open({
 // Initialize database
 async function initializeDatabase() {
   const db = await dbPromise;
+
+  // Ensure COMPOSE_FILES_DIR exists
+  try {
+    await fs.mkdir(COMPOSE_FILES_DIR, { recursive: true });
+    console.log(`Compose files directory ensured: ${COMPOSE_FILES_DIR}`);
+  } catch (error) {
+    console.error("Failed to create compose files directory:", error);
+  }
 
   // Create users table
   await db.exec(`
@@ -97,106 +113,137 @@ const authenticateToken = (
       return;
     }
 
-    // Add user info to request object
     req.user = decoded as { id: number; username: string };
     next();
   });
 };
 
+// Utility function to run Docker Compose commands
+async function runDockerComposeCommand(
+  vmId: number,
+  operation: string
+): Promise<{ stdout: string; stderr: string }> {
+  const composeFilePath = path.join(
+    COMPOSE_FILES_DIR,
+    `docker-compose.vm-${vmId}.yml`
+  );
+  const projectName = `vm_${vmId}`;
+  const command = `docker-compose -f "${composeFilePath}" -p "${projectName}" ${operation}`;
+
+  console.log(`Executing Docker Compose command for vm-${vmId}: ${command}`);
+  try {
+    const { stdout, stderr } = await execAsync(command);
+    if (stderr && !stderr.toLowerCase().includes("warning")) {
+      console.warn(`Docker Compose stderr for vm-${vmId} (${operation}): ${stderr}`);
+    }
+    return { stdout, stderr };
+  } catch (error) {
+    const execError = error as Error & { stdout?: string; stderr?: string };
+    console.error(`Error executing Docker Compose for vm-${vmId} (${operation}): ${execError.message}`);
+    console.error(`Stdout: ${execError.stdout}`);
+    console.error(`Stderr: ${execError.stderr}`);
+    throw new Error(`Failed to execute docker-compose ${operation} for VM ${vmId}: ${execError.message}`);
+  }
+}
+
 // Create a Docker container for a VM (initially stopped)
 async function createDockerContainer(
   vmId: number,
   vmName: string
-): Promise<{ port: number; containerId: string }> {
+): Promise<{ port: number; containerName: string }> {
   try {
-    // Generate a unique port for noVNC (start from 6080 and offset based on vmId)
+    await fs.mkdir(COMPOSE_FILES_DIR, { recursive: true });
+
     const novncPort = 6080 + vmId;
-    // Also expose the VNC port directly (start from 5901 and offset based on vmId)
     const vncPort = 5901 + vmId;
+    const containerName = `ssem-vm-${vmId}`;
 
-    // Build docker create command (not run) to create but not start the container
-    const dockerCommand = `docker build -t anyrun-vm-image -f /home/matdef/projects/anyrun-clone/Dockerfile /home/matdef/projects/anyrun-clone && \
-      docker create --name anyrun-vm-${vmId} \
-      -p ${novncPort}:6080 \
-      -p ${vncPort}:5901 \
-      --privileged \
-      --shm-size=1g \
-      anyrun-vm-image`;
+    const composeConfig = {
+      version: "3.8",
+      services: {
+        sandbox_vm: {
+          image: `${BASE_IMAGE_NAME}`,
+          build: {
+            context: PROJECT_ROOT,
+            dockerfile: DOCKERFILE_PATH,
+          },
+          container_name: containerName,
+          privileged: true,
+          volumes: ["/sys/fs/cgroup:/sys/fs/cgroup:ro"],
+          tmpfs: ["/run", "/run/lock"],
+          ports: [`${vncPort}:5901`, `${novncPort}:6080`],
+        },
+      },
+    };
 
-    console.log(`Running Docker command: ${dockerCommand}`);
-    const { stdout } = await execAsync(dockerCommand);
-    const containerId = stdout.trim();
+    const composeFileContent = yaml.dump(composeConfig);
+    const composeFilePath = path.join(
+      COMPOSE_FILES_DIR,
+      `docker-compose.vm-${vmId}.yml`
+    );
+    await fs.writeFile(composeFilePath, composeFileContent);
+    console.log(`Generated docker-compose file for VM ${vmId} at ${composeFilePath}`);
+
+    await runDockerComposeCommand(vmId, "up --build --no-start");
 
     console.log(
-      `Container created with ID: ${containerId} on ports ${novncPort}(noVNC) and ${vncPort}(VNC) (stopped)`
+      `Container service for VM ${vmId} created with name: ${containerName} on noVNC port ${novncPort} (VNC ${vncPort}) (initially stopped)`
     );
-    return { port: novncPort, containerId };
+    return { port: novncPort, containerName };
   } catch (error) {
-    console.error(`Error creating Docker container for VM ${vmId}:`, error);
+    console.error(`Error creating Docker Compose service for VM ${vmId}:`, error);
     throw new Error(
-      `Failed to create Docker container: ${(error as Error).message}`
+      `Failed to create Docker Compose service: ${(error as Error).message}`
     );
   }
 }
 
-// Start an existing Docker container
+// Start an existing Docker container service
 async function startDockerContainer(vmId: number): Promise<void> {
   try {
-    const containerName = `anyrun-vm-${vmId}`;
-    await execAsync(`docker start ${containerName}`);
-    console.log(`Container ${containerName} started`);
+    await runDockerComposeCommand(vmId, "start sandbox_vm");
+    console.log(`Container service for VM ${vmId} (sandbox_vm) started`);
   } catch (error) {
-    console.error(`Error starting Docker container for VM ${vmId}:`, error);
+    console.error(`Error starting Docker Compose service for VM ${vmId}:`, error);
     throw new Error(
-      `Failed to start Docker container: ${(error as Error).message}`
+      `Failed to start Docker Compose service: ${(error as Error).message}`
     );
   }
 }
 
-// Stop a Docker container without removing it
+// Stop a Docker container service without removing it
 async function stopDockerContainer(vmId: number): Promise<void> {
   try {
-    const containerName = `anyrun-vm-${vmId}`;
-    // Only stop the container without removing it
-    await execAsync(`docker stop ${containerName}`).catch((error) => {
-      // Ignore errors if container is not running
-      console.log(
-        `Container ${containerName} not running or already stopped: ${error.message}`
-      );
-    });
-
-    console.log(`Container ${containerName} stopped (but not removed)`);
+    await runDockerComposeCommand(vmId, "stop sandbox_vm");
+    console.log(`Container service for VM ${vmId} (sandbox_vm) stopped (preserved)`);
   } catch (error) {
-    console.error(`Error stopping Docker container for VM ${vmId}:`, error);
+    console.error(`Error stopping Docker Compose service for VM ${vmId}:`, error);
     throw new Error(
-      `Failed to stop Docker container: ${(error as Error).message}`
+      `Failed to stop Docker Compose service: ${(error as Error).message}`
     );
   }
 }
 
-// Stop and remove a Docker container
+// Stop and remove a Docker container service and its configuration
 async function removeDockerContainer(vmId: number): Promise<void> {
   try {
-    const containerName = `anyrun-vm-${vmId}`;
-    // First stop the container if it's running
-    await execAsync(`docker stop ${containerName}`).catch(() => {
-      // Ignore errors if container is not running
-      console.log(`Container ${containerName} not running or already stopped`);
-    });
+    await runDockerComposeCommand(vmId, "down --volumes");
+    console.log(`Container service for VM ${vmId} (sandbox_vm) stopped and removed`);
 
-    // Then remove the container
-    await execAsync(`docker rm ${containerName}`).catch(() => {
-      // Ignore errors if container doesn't exist
-      console.log(
-        `Container ${containerName} doesn't exist or already removed`
-      );
-    });
-
-    console.log(`Container ${containerName} stopped and removed`);
+    const composeFilePath = path.join(
+      COMPOSE_FILES_DIR,
+      `docker-compose.vm-${vmId}.yml`
+    );
+    try {
+      await fs.unlink(composeFilePath);
+      console.log(`Removed docker-compose file: ${composeFilePath}`);
+    } catch (fileError) {
+      console.warn(`Could not remove compose file ${composeFilePath}: ${(fileError as Error).message}`);
+    }
   } catch (error) {
-    console.error(`Error removing Docker container for VM ${vmId}:`, error);
+    console.error(`Error removing Docker Compose service for VM ${vmId}:`, error);
     throw new Error(
-      `Failed to remove Docker container: ${(error as Error).message}`
+      `Failed to remove Docker Compose service: ${(error as Error).message}`
     );
   }
 }
@@ -215,7 +262,6 @@ app.post("/api/register", async (req, res) => {
 
     const db = await dbPromise;
 
-    // Check if user already exists
     const existingUser = await db.get(
       "SELECT id FROM users WHERE username = ? OR email = ?",
       [username, email]
@@ -225,10 +271,8 @@ app.post("/api/register", async (req, res) => {
       return;
     }
 
-    // Hash the password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create the user
     const result = await db.run(
       "INSERT INTO users (username, password, email) VALUES (?, ?, ?)",
       [username, hashedPassword, email]
@@ -254,7 +298,6 @@ app.post("/api/login", async (req, res) => {
 
     const db = await dbPromise;
 
-    // Find the user
     const user = await db.get(
       "SELECT id, username, password FROM users WHERE username = ?",
       [username]
@@ -264,14 +307,12 @@ app.post("/api/login", async (req, res) => {
       return;
     }
 
-    // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password);
     if (!isValidPassword) {
       res.status(401).json({ message: "Invalid username or password" });
       return;
     }
 
-    // Generate JWT token
     const token = jwt.sign(
       { id: user.id, username: user.username },
       JWT_SECRET,
@@ -319,7 +360,6 @@ app.post("/api/vms", authenticateToken, async (req, res) => {
 
     const db = await dbPromise;
 
-    // Check if user already has 3 VMs
     const vmCount = await db.get(
       "SELECT COUNT(*) as count FROM virtual_machines WHERE user_id = ?",
       [userId]
@@ -330,7 +370,6 @@ app.post("/api/vms", authenticateToken, async (req, res) => {
       return;
     }
 
-    // Create a new VM
     const result = await db.run(
       "INSERT INTO virtual_machines (user_id, name) VALUES (?, ?)",
       [userId, name]
@@ -340,15 +379,14 @@ app.post("/api/vms", authenticateToken, async (req, res) => {
       result.lastID,
     ]);
 
-    // Create Docker container for the VM
-    const { port, containerId } = await createDockerContainer(
+    const { port, containerName } = await createDockerContainer(
       newVm.id,
       newVm.name
     );
 
     res.status(201).json({
       message: "VM created successfully",
-      vm: { ...newVm, port, containerId },
+      vm: { ...newVm, port, containerName },
     });
   } catch (error) {
     console.error("Error creating VM:", error);
@@ -356,7 +394,6 @@ app.post("/api/vms", authenticateToken, async (req, res) => {
   }
 });
 
-// Update VM status (start/stop)
 app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -372,7 +409,6 @@ app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
 
     const db = await dbPromise;
 
-    // Verify VM belongs to user
     const vm = await db.get(
       "SELECT * FROM virtual_machines WHERE id = ? AND user_id = ?",
       [vmId, userId]
@@ -383,18 +419,14 @@ app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
       return;
     }
 
-    // Get current VM status
     const currentStatus = vm.status;
 
-    // Only perform container operations if status is actually changing
     if (currentStatus !== status) {
       try {
         if (status === "running") {
-          // Start VM: start Docker container
           await startDockerContainer(vmId);
           console.log(`Started VM ${vmId}`);
         } else {
-          // Stop VM: only stop the container without removing it
           await stopDockerContainer(vmId);
           console.log(`Stopped VM ${vmId} (container preserved for restart)`);
         }
@@ -412,7 +444,6 @@ app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
       }
     }
 
-    // Update VM status in database
     await db.run("UPDATE virtual_machines SET status = ? WHERE id = ?", [
       status,
       vmId,
@@ -435,7 +466,6 @@ app.put("/api/vms/:id/status", authenticateToken, async (req, res) => {
   }
 });
 
-// Delete VM
 app.delete("/api/vms/:id", authenticateToken, async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -454,7 +484,6 @@ app.delete("/api/vms/:id", authenticateToken, async (req, res) => {
 
     const db = await dbPromise;
 
-    // Verify VM belongs to user
     const vm = await db.get(
       "SELECT * FROM virtual_machines WHERE id = ? AND user_id = ?",
       [vmIdNumber, userId]
@@ -465,10 +494,8 @@ app.delete("/api/vms/:id", authenticateToken, async (req, res) => {
       return;
     }
 
-    // Delete the VM
     await db.run("DELETE FROM virtual_machines WHERE id = ?", [vmIdNumber]);
 
-    // Remove Docker container for the VM
     await removeDockerContainer(vmIdNumber);
 
     res.json({ message: "VM deleted successfully" });
@@ -478,9 +505,6 @@ app.delete("/api/vms/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Start the server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
-export default app;

@@ -1,0 +1,14 @@
+[Unit]
+Description=Sandbox Application Service
+After=network.target
+
+[Service]
+User=sandbox
+WorkingDirectory=/home/sandbox
+ExecStart=/entrypoint.sh
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
