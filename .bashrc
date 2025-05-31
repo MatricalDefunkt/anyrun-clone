@@ -1,0 +1,1 @@
+echo "The password for the root user is 'root'"

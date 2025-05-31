@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS base
+FROM ubuntu:25.10 AS base
 
 # Avoid interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -39,14 +39,8 @@ RUN apt install -y --no-install-recommends websockify
 RUN apt install -y --no-install-recommends systemd
 RUN apt install -y --no-install-recommends snapd
 
-# Copy systemd service file
-COPY sandbox-app.service /etc/systemd/system/sandbox-app.service
-RUN systemctl enable sandbox-app.service
-
-RUN rm -rf /var/lib/apt/lists/*
-
-# Set root password (ensure you change "rootpassword" to a strong password or use a build argument)
-RUN echo "root:password" | chpasswd
+# Set root password
+RUN echo "root:root" | chpasswd
 
 # Create a non-root user 'sandbox'
 RUN useradd -m -s /bin/bash sandbox && \
@@ -71,8 +65,11 @@ RUN chmod +x /entrypoint.sh /self_destruct.sh
 # Expose VNC and noVNC ports
 EXPOSE 5901 6080
 
-# Configure for systemd
-ENV container=docker
-STOPSIGNAL SIGRTMIN+3
-ENTRYPOINT [ "/usr/sbin/init" ]
-# CMD [] # This will allow systemd to start its default target
+# Set user and working directory
+USER sandbox
+WORKDIR /home/sandbox
+COPY ./.bashrc /home/sandbox/.bashrc
+
+
+# Set the entrypoint script
+ENTRYPOINT ["/entrypoint.sh"]
